@@ -130,7 +130,7 @@ class ContiFormer(nn.Module):
         }
         args_ode = AttrDict(args_ode)
 
-        self.encoder = EncoderLayer(16, 64, 4, 4, 4, args=args_ode, dropout=args.dropout).to(device)
+        self.encoder = EncoderLayer(16, 64, 6, 4, 4, args=args_ode, dropout=args.dropout).to(device)
         self.lin_in = nn.Linear(obs_dim, 16).to(device)
         self.lin_out = nn.Linear(16, obs_dim).to(device)
 
