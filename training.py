@@ -7,7 +7,6 @@ import math
 import random
 import logging
 import numpy as np
-import numpy.random as npr
 import matplotlib
 import matplotlib.pyplot as plt
 import torch.optim as optim
