@@ -38,8 +38,6 @@ def get_logger(name):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--adjoint', type=eval, default=False)
-parser.add_argument('--visualize', type=eval, default=False)
 parser.add_argument('--niters', type=int, default=1000)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--gpu', type=int, default=0)
@@ -48,7 +46,6 @@ parser.add_argument('--val_dir_pictures', type=str, default='./val_pictures/')
 parser.add_argument('--val_dir_data', type=str, default='./val_data/')
 parser.add_argument('--model_name', type=str, default='Contiformer',
                     choices=['Neural_ODE', 'Contiformer'])
-parser.add_argument('--log_step', type=int, default=50)
 parser.add_argument('--seed', type=int, default=27)
 
 ## parameters for Contiformer
@@ -92,11 +89,6 @@ if not os.path.exists(args.val_dir_data):
     os.makedirs(args.val_dir_data)
 
 log = get_logger(os.path.join(args.train_dir, 'log'))
-
-if args.adjoint:
-    from torchdiffeq import odeint_adjoint as odeint
-else:
-    from torchdiffeq import odeint
 
 
 class RunningAverageMeter(object):
