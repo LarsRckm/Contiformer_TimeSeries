@@ -40,8 +40,8 @@ def get_logger(name):
 parser = argparse.ArgumentParser()
 parser.add_argument('--adjoint', type=eval, default=False)
 parser.add_argument('--visualize', type=eval, default=False)
-parser.add_argument('--niters', type=int, default=4000)
-parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--niters', type=int, default=100)
+parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--train_dir', type=str, default='./train_dir/')
 parser.add_argument('--val_dir_pictures', type=str, default='./val_pictures/')
@@ -158,8 +158,8 @@ class ContiFormer(nn.Module):
     def forward(self, samples, orig_ts, **kwargs):
         if kwargs.get('is_train', False):
             bs, ls = samples.shape[0], len(orig_ts)
-            sample_idx = npr.choice(bs, self.batch_size, replace=False)
-            samples = samples[sample_idx, ...]
+            # sample_idx = npr.choice(bs, self.batch_size, replace=False)
+            # samples = samples[sample_idx, ...]
 
             t0 = samples[..., -1]
             input = self.lin_in(samples[..., :-1])
@@ -174,7 +174,7 @@ class ContiFormer(nn.Module):
             mask = torch.zeros(self.batch_size, ls, 1).to(input.device)
             out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(self.batch_size, 1).float(),
                                   mask=mask.bool())
-            return self.lin_out(out), sample_idx
+            return self.lin_out(out)
         else:
             bs, ls = samples.shape[0], len(orig_ts)
             t0 = samples[..., -1]
@@ -191,13 +191,13 @@ class ContiFormer(nn.Module):
             out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(bs, 1).float(), mask=mask.bool())
             return self.lin_out(out), None
 
-    def calculate_loss(self, pred_x, idx, target):
+    def calculate_loss(self, pred_x, target_x):
         # pred_x, idx = out
-        target_x, _, _ = target
-        if idx is not None:
-            return ((pred_x - target_x[idx, ...]) ** 2).sum()
-        else:
-            return ((pred_x - target_x) ** 2).sum()
+        # target_x, _, _ = target
+        # if idx is not None:
+        #     return ((pred_x - target_x[idx, ...]) ** 2).sum()
+        # else:
+        return ((pred_x - target_x) ** 2).sum()
 
 
 def get_ds_timeSeries(function_args):
@@ -205,8 +205,8 @@ def get_ds_timeSeries(function_args):
     val_count = function_args.val_count
     x_values = np.arange(0, function_args.number_x_values)
 
-    train_ds = TimeSeriesDataset_Interpolation_roundedInput(train_count, x_values, function_args)
-    val_ds = TimeSeriesDataset_Interpolation_roundedInput(val_count, x_values, function_args)
+    train_ds = TimeSeriesDataset_Interpolation_roundedInput(train_count, x_values, function_args, args.batch_size)
+    val_ds = TimeSeriesDataset_Interpolation_roundedInput(val_count, x_values, function_args, args.batch_size)
 
     train_dataloader = DataLoader(train_ds, batch_size=function_args.batch_size)
     val_dataloader = DataLoader(val_ds, batch_size=1)
@@ -248,48 +248,59 @@ if __name__ == '__main__':
 
     for itr in range(st + 1, args.niters + 1):
         # train one iteration
-        batch_iterator = tqdm(train_dataloader, desc=f"Processing epoch {itr:02d}")
-        for batch in batch_iterator:
-            optimizer.zero_grad()
-            # backward in time to infer q(z_0)
+        # batch_iterator = tqdm(train_dataloader, desc=f"Processing epoch {itr:02d}")
+        # for batch in batch_iterator:
+        #     optimizer.zero_grad()
+        #     # backward in time to infer q(z_0)
 
-            groundTruth = batch["groundTruth"].unsqueeze(-1).to(device)
-            timeSeries_noisy_original = batch["noisy_TimeSeries"]
-            mask = batch["mask"]
-            time_stamps_original = batch["time_stamps"]
+        #     groundTruth = batch["groundTruth"].unsqueeze(-1).to(device)
+        #     timeSeries_noisy_original = batch["noisy_TimeSeries"]
+        #     mask = batch["mask"]
+        #     time_stamps_original = torch.tensor(np.arange(0, args.number_x_values)).to(device)
             
-            div_term = batch["div_term"].unsqueeze(-1).unsqueeze(-1).to(device)
-            min_value = batch["min_value"].unsqueeze(-1).unsqueeze(-1).to(device)
-            noise_std = batch["noise_std"]
+        #     div_term = batch["div_term"].unsqueeze(-1).unsqueeze(-1).to(device)
+        #     min_value = batch["min_value"].unsqueeze(-1).unsqueeze(-1).to(device)
+        #     noise_std = batch["noise_std"]
 
-            mask_indices = torch.where(mask[0] == True)[0]
-            timeSeries_noisy = timeSeries_noisy_original[:,mask_indices].unsqueeze(-1)
-            time_stamps = time_stamps_original[0].detach().clone()[mask_indices].to(device)
-            time_stamps = time_stamps.reshape(1,-1,1).repeat(timeSeries_noisy.size(0),1,1)
-            timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float().to(device)
+        #     row_idx, col_idx = torch.where(mask)
+        #     n_true_per_row = mask.sum(dim=1)[0].item()
+        #     indices_per_row = col_idx.view(10, n_true_per_row)
+        #     timeSeries_noisy = timeSeries_noisy_original.gather(1, indices_per_row)
+        #     indices_per_row = indices_per_row.unsqueeze(-1)
+        #     timeSeries_noisy = timeSeries_noisy.unsqueeze(-1)
+        #     timeSeries_noisy = torch.cat((timeSeries_noisy, indices_per_row), dim=-1).float().to(device)
 
-            out = model(timeSeries_noisy, time_stamps_original[0], idx=mask_indices, is_train=True)
-            try:
-                pz0_mean = pz0_logvar = torch.zeros(out[1].size()).to(device)
-            except:
-                pz0_mean = pz0_logvar = None
-            out, idx = out
-            out = (out*div_term) + min_value
-            groundTruth = (groundTruth*div_term) + min_value
-            loss = model.calculate_loss(out, idx, (groundTruth, pz0_mean, pz0_logvar))
-            loss.backward()
-            optimizer.step()
-            loss_meter.update(loss.item())
+        #     # for i in range(args.batch_size):
+        #     #     y_values_loop = timeSeries_noisy_original[i]
+        #     #     x_values = np.arange(len(y_values_loop))
+        #     #     mask_loop = mask[i]
+        #     #     y_values_loop[mask_loop == False] = np.nan
 
-            log.info('Iter: {}, running loss: {:.4f}'.format(itr, loss_meter.avg))
+        #     #     fig, ax = plt.subplots(1,1)
+        #     #     ax.plot(x_values, y_values_loop)
+        #     #     plt.show()
 
-            ckpt_path = os.path.join(args.train_dir, f'ckpt_{args.model_name}.pth')
-            torch.save({
-                'model': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'itr': itr,
-            }, ckpt_path)
-            log.info('Stored ckpt at {}'.format(ckpt_path))
+
+
+
+        #     out = model(timeSeries_noisy, time_stamps_original, is_train=True)
+        #     # out, idx = out
+        #     out = (out*div_term) + min_value
+        #     groundTruth = (groundTruth*div_term) + min_value
+        #     loss = model.calculate_loss(out, groundTruth)
+        #     loss.backward()
+        #     optimizer.step()
+        #     loss_meter.update(loss.item())
+
+        #     log.info('Iter: {}, running loss: {:.4f}'.format(itr, loss_meter.avg))
+
+        #     ckpt_path = os.path.join(args.train_dir, f'ckpt_{args.model_name}.pth')
+        #     torch.save({
+        #         'model': model.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'itr': itr,
+        #     }, ckpt_path)
+        #     log.info('Stored ckpt at {}'.format(ckpt_path))
 
         # test one iteration
         with torch.no_grad():
@@ -298,19 +309,31 @@ if __name__ == '__main__':
                 groundTruth = batch["groundTruth"]
                 timeSeries_noisy_original = batch["noisy_TimeSeries"]
                 mask = batch["mask"]
-                time_stamps_original = batch["time_stamps"]
+                time_stamps_original = torch.tensor(np.arange(0, args.number_x_values))
                 
                 div_term = batch["div_term"]
                 min_value = batch["min_value"]
                 noise_std = batch["noise_std"]
 
-                mask_indices = torch.where(mask[0] == True)[0].to(device)
-                timeSeries_noisy = timeSeries_noisy_original[:,mask_indices].unsqueeze(-1)
-                time_stamps = time_stamps_original[0].detach().clone()[mask_indices]
-                time_stamps = time_stamps.reshape(1,-1,1).repeat(timeSeries_noisy.size(0),1,1)
-                timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float()
+                # mask_indices = torch.where(mask[0] == True)[0].to(device)
+                # timeSeries_noisy = timeSeries_noisy_original[:,mask_indices].unsqueeze(-1)
+                # time_stamps = time_stamps_original.detach().clone()[mask_indices]
+                # time_stamps = time_stamps.reshape(1,-1,1).repeat(timeSeries_noisy.size(0),1,1)
+                # timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float()
 
-                pred_x = model(timeSeries_noisy, time_stamps_original[0], idx=mask_indices)[0]
+                row_idx, col_idx = torch.where(mask)
+                n_true_per_row = mask.sum(dim=1)[0].item()
+                indices_per_row = col_idx.view(1, n_true_per_row)
+                timeSeries_noisy = timeSeries_noisy_original.gather(1, indices_per_row)
+                indices_per_row = indices_per_row.unsqueeze(-1)
+                timeSeries_noisy = timeSeries_noisy.unsqueeze(-1)
+                timeSeries_noisy = torch.cat((timeSeries_noisy, indices_per_row), dim=-1).float()
+
+                pred_x = model(timeSeries_noisy, time_stamps_original)[0]
+
+                pred_x = (pred_x * div_term) + min_value
+                groundTruth = (groundTruth * div_term) + min_value
+
                 mae = torch.abs(pred_x - groundTruth.unsqueeze(-1)).sum(dim=-1).mean()
                 rmse = torch.sqrt(((pred_x - groundTruth.unsqueeze(-1)) ** 2).sum(dim=-1).mean())
                 log.info('Iter: {}, MAE: {:.4f}, RMSE: {:.4f}'.format(itr, mae.item(), rmse.item()))
@@ -319,9 +342,9 @@ if __name__ == '__main__':
                 samp_traj = timeSeries_noisy[0].cpu().numpy()
 
                 fig, ax = plt.subplots(1,1)
-                ax.plot(time_stamps_original[0], (timeSeries_noisy_original[0]*div_term[0])+min_value[0], label="Noisy Trajectory")
-                ax.plot(time_stamps_original[0], (groundTruth[0]*div_term[0])+min_value[0], label="True Trajectory")
-                ax.plot(time_stamps_original[0], (pred_x[0]*div_term[0])+min_value[0], label="Prediction Trajectory")
+                ax.plot(time_stamps_original, (timeSeries_noisy_original[0]*div_term[0])+min_value[0], label="Noisy Trajectory")
+                ax.plot(time_stamps_original, groundTruth[0], label="True Trajectory")
+                ax.plot(time_stamps_original, pred_x[0], label="Prediction Trajectory")
                 ax.legend()
 
                 save_path = os.path.join(args.val_dir_pictures, f'vis_{itr}.svg')
