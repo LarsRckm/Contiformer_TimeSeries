@@ -40,7 +40,7 @@ def get_logger(name):
 parser = argparse.ArgumentParser()
 parser.add_argument('--adjoint', type=eval, default=False)
 parser.add_argument('--visualize', type=eval, default=False)
-parser.add_argument('--niters', type=int, default=100)
+parser.add_argument('--niters', type=int, default=1000)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--train_dir', type=str, default='./train_dir/')
