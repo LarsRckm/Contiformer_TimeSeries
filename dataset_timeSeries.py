@@ -7,12 +7,11 @@ from random import choice
 
 #Dataset for encoder Interpolation
 class TimeSeriesDataset_Interpolation_roundedInput(Dataset):
-    def __init__(self, timeseries_count: int, x_values, args, batch_size) -> None:
+    def __init__(self, timeseries_count: int, x_values, args) -> None:
         super().__init__()
         self.timeseries_count = timeseries_count
         self.x_values = x_values
         self.args = args
-        self.batchSize = batch_size
         self.mask_size = np.random.uniform(0,400)
 
     def __len__(self):

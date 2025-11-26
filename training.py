@@ -60,7 +60,7 @@ parser.add_argument('--dropout', type=float, default=0.1)
 ##parameters for timeseries generation
 parser.add_argument('--y_lim_low', type=int, default=10)
 parser.add_argument('--y_lim_high', type=int, default=10000)
-parser.add_argument('--train_count', type=int, default=10)
+parser.add_argument('--train_count', type=int, default=1000)
 parser.add_argument('--val_count', type=int, default=1)
 parser.add_argument('--number_x_values', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=10) #ausprobieren
@@ -205,8 +205,8 @@ def get_ds_timeSeries(function_args):
     val_count = function_args.val_count
     x_values = np.arange(0, function_args.number_x_values)
 
-    train_ds = TimeSeriesDataset_Interpolation_roundedInput(train_count, x_values, function_args, args.batch_size)
-    val_ds = TimeSeriesDataset_Interpolation_roundedInput(val_count, x_values, function_args, args.batch_size)
+    train_ds = TimeSeriesDataset_Interpolation_roundedInput(train_count, x_values, function_args)
+    val_ds = TimeSeriesDataset_Interpolation_roundedInput(val_count, x_values, function_args)
 
     train_dataloader = DataLoader(train_ds, batch_size=function_args.batch_size)
     val_dataloader = DataLoader(val_ds, batch_size=1)
