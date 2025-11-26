@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 from create_data import callFunction
-from useful import remove_parts_of_graph_encoder, remove_parts_of_graph_encoder_contiformer
+from useful import remove_parts_of_graph_encoder_contiformer
 from random import choice
 
 #Dataset for encoder Interpolation

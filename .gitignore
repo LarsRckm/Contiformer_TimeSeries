@@ -2,3 +2,4 @@ __pycache__/
 train_dir/
 val_data/
 val_pictures/
+try.py
