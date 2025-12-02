@@ -43,6 +43,7 @@ parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--train_dir', type=str, default='./train_dir/')
 parser.add_argument('--val_dir_pictures', type=str, default='./val_pictures/')
 parser.add_argument('--val_dir_data', type=str, default='./val_data/')
+parser.add_argument('--loss_dir_data', type=str, default='./loss_data/')
 parser.add_argument('--model_name', type=str, default='Contiformer',
                     choices=['Neural_ODE', 'Contiformer'])
 parser.add_argument('--seed', type=int, default=27)
@@ -56,7 +57,7 @@ parser.add_argument('--dropout', type=float, default=0.1)
 ##parameters for timeseries generation
 parser.add_argument('--y_lim_low', type=int, default=10)
 parser.add_argument('--y_lim_high', type=int, default=10000)
-parser.add_argument('--train_count', type=int, default=1000)
+parser.add_argument('--train_count', type=int, default=10)
 parser.add_argument('--val_count', type=int, default=1)
 parser.add_argument('--number_x_values', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=10) #ausprobieren
@@ -86,6 +87,9 @@ if not os.path.exists(args.val_dir_pictures):
 
 if not os.path.exists(args.val_dir_data):
     os.makedirs(args.val_dir_data)
+
+if not os.path.exists(args.loss_dir_data):
+    os.makedirs(args.loss_dir_data)
 
 log = get_logger(os.path.join(args.train_dir, 'log'))
 
@@ -128,6 +132,9 @@ class ContiFormer(nn.Module):
         self.position_vec = torch.tensor(
             [math.pow(10000.0, 2.0 * (i // 2) / 16) for i in range(16)])
         self.batch_size = batch_size
+        self.L1_loss = []
+        self.gradient_loss = []
+        self.total_loss = []
 
     def temporal_enc(self, time):
         """
@@ -182,13 +189,41 @@ class ContiFormer(nn.Module):
             out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(bs, 1).float(), mask=mask.bool())
             return self.lin_out(out), None
 
-    def calculate_loss(self, pred_x, target_x):
-        # pred_x, idx = out
-        # target_x, _, _ = target
-        # if idx is not None:
-        #     return ((pred_x - target_x[idx, ...]) ** 2).sum()
-        # else:
-        return ((pred_x - target_x) ** 2).sum()
+    # def calculate_loss(self, pred_x, target_x):
+    #     # pred_x, idx = out
+    #     # target_x, _, _ = target
+    #     # if idx is not None:
+    #     #     return ((pred_x - target_x[idx, ...]) ** 2).sum()
+    #     # else:
+    #     return ((pred_x - target_x) ** 2).sum()
+
+    def calculate_loss(self, pred_x, target_x, time_interval=None, weight_l1=1.0, weight_grad=0.5):
+    # MSE für die Werte selbst
+        L1_loss = torch.nn.functional.smooth_l1_loss(pred_x, target_x, reduction="mean")
+        
+        if time_interval is not None:
+            # Gradienten mit finiten Differenzen berechnen
+            # time_interval sollte die zeitlichen Schritte enthalten
+            dt = time_interval[1:] - time_interval[:-1]  # Zeitunterschiede
+            dt = dt.unsqueeze(-1)  # Shape anpassen für Broadcasting
+            
+            # Gradienten der Vorhersage und des Targets
+            pred_grad = (pred_x[:, 1:] - pred_x[:, :-1]) / dt
+            target_grad = (target_x[:, 1:] - target_x[:, :-1]) / dt
+            
+            # MSE der Gradienten
+            gradient_loss = torch.nn.functional.mse_loss(pred_grad, target_grad, reduction="mean")
+            
+            # Kombinierte Loss
+            self.L1_loss.append(L1_loss.item())
+            self.gradient_loss.append(gradient_loss.item())
+
+            total_loss = weight_l1 * L1_loss + weight_grad * gradient_loss
+
+            self.total_loss.append(total_loss.item())   
+            return total_loss
+        else:
+            return L1_loss
 
 
 def get_ds_timeSeries(function_args):
@@ -247,7 +282,7 @@ if __name__ == '__main__':
             groundTruth = batch["groundTruth"].unsqueeze(-1).to(device)
             timeSeries_noisy_original = batch["noisy_TimeSeries"]
             mask = batch["mask"]
-            time_stamps_original = torch.tensor(np.arange(0, args.number_x_values)).to(device)
+            time_stamps_original = torch.linspace(0,1, args.number_x_values, dtype=torch.float32).to(device)
             
             div_term = batch["div_term"].unsqueeze(-1).unsqueeze(-1).to(device)
             min_value = batch["min_value"].unsqueeze(-1).unsqueeze(-1).to(device)
@@ -276,9 +311,9 @@ if __name__ == '__main__':
 
             out = model(timeSeries_noisy, time_stamps_original, is_train=True)
             # out, idx = out
-            out = (out*div_term) + min_value
-            groundTruth = (groundTruth*div_term) + min_value
-            loss = model.calculate_loss(out, groundTruth)
+            # out = (out*div_term) + min_value
+            # groundTruth = (groundTruth*div_term) + min_value
+            loss = model.calculate_loss(out, groundTruth, time_interval=time_stamps_original, weight_l1=1.0, weight_grad=0.5)
             loss.backward()
             optimizer.step()
             loss_meter.update(loss.item())
@@ -300,7 +335,7 @@ if __name__ == '__main__':
                 groundTruth = batch["groundTruth"]
                 timeSeries_noisy_original = batch["noisy_TimeSeries"]
                 mask = batch["mask"]
-                time_stamps_original = torch.tensor(np.arange(0, args.number_x_values))
+                time_stamps_original = torch.linspace(0,1,1000).to(device)
                 
                 div_term = batch["div_term"]
                 min_value = batch["min_value"]
@@ -322,12 +357,12 @@ if __name__ == '__main__':
 
                 pred_x = model(timeSeries_noisy, time_stamps_original)[0]
 
+                # mae = torch.abs(pred_x - groundTruth.unsqueeze(-1)).sum(dim=-1).mean()
+                # rmse = torch.sqrt(((pred_x - groundTruth.unsqueeze(-1)) ** 2).sum(dim=-1).mean())
+                # log.info('Iter: {}, MAE: {:.4f}, RMSE: {:.4f}'.format(itr, mae.item(), rmse.item()))
+
                 pred_x = (pred_x * div_term) + min_value
                 groundTruth = (groundTruth * div_term) + min_value
-
-                mae = torch.abs(pred_x - groundTruth.unsqueeze(-1)).sum(dim=-1).mean()
-                rmse = torch.sqrt(((pred_x - groundTruth.unsqueeze(-1)) ** 2).sum(dim=-1).mean())
-                log.info('Iter: {}, MAE: {:.4f}, RMSE: {:.4f}'.format(itr, mae.item(), rmse.item()))
 
                 orig_traj = groundTruth[0].cpu().numpy()
                 samp_traj = timeSeries_noisy[0].cpu().numpy()
@@ -338,7 +373,22 @@ if __name__ == '__main__':
                 ax.plot(time_stamps_original, pred_x[0], label="Prediction Trajectory")
                 ax.legend()
 
-                save_path = os.path.join(args.val_dir_pictures, f'vis_{itr}.svg')
+                save_path = os.path.join(args.val_dir_pictures, f'v_{itr}.svg')
+                plt.savefig(save_path, dpi=500)
+                log.info('Saved visualization figure at {}'.format(save_path))
+
+
+                fig, ax = plt.subplots(3,1)
+                error_samples = np.arange(len(model.total_loss))
+                ax[0].plot(error_samples, model.total_loss, label="Total Loss")
+                ax[1].plot(error_samples, model.L1_loss, label="L1 Loss")
+                ax[2].plot(error_samples, model.gradient_loss, label="Gradient Loss")
+                
+                ax[0].legend()
+                ax[1].legend()
+                ax[2].legend()
+
+                save_path = os.path.join(args.loss_dir_data, f'loss_{itr}.svg')
                 plt.savefig(save_path, dpi=500)
                 log.info('Saved visualization figure at {}'.format(save_path))
 
