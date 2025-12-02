@@ -37,7 +37,7 @@ def get_logger(name):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--niters', type=int, default=1000)
+parser.add_argument('--niters', type=int, default=4000)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--train_dir', type=str, default='./train_dir/')
@@ -57,7 +57,7 @@ parser.add_argument('--dropout', type=float, default=0.1)
 ##parameters for timeseries generation
 parser.add_argument('--y_lim_low', type=int, default=10)
 parser.add_argument('--y_lim_high', type=int, default=10000)
-parser.add_argument('--train_count', type=int, default=10)
+parser.add_argument('--train_count', type=int, default=1000)
 parser.add_argument('--val_count', type=int, default=1)
 parser.add_argument('--number_x_values', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=10) #ausprobieren
