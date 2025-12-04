@@ -57,7 +57,7 @@ parser.add_argument('--dropout', type=float, default=0.1)
 ##parameters for timeseries generation
 parser.add_argument('--y_lim_low', type=int, default=10)
 parser.add_argument('--y_lim_high', type=int, default=10000)
-parser.add_argument('--train_count', type=int, default=1000)
+parser.add_argument('--train_count', type=int, default=10)
 parser.add_argument('--val_count', type=int, default=1)
 parser.add_argument('--number_x_values', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=10) #ausprobieren
@@ -120,17 +120,18 @@ class ContiFormer(nn.Module):
         args_ode = {
             'use_ode': True, 'actfn': 'tanh', 'layer_type': 'concat', 'zero_init': True,
             'atol': args.atol, 'rtol': args.rtol, 'method': args.method, 'regularize': False,
-            'approximate_method': 'bilinear', 'nlinspace': 1, 'linear_type': 'before',
+            'approximate_method': 'bilinear', 'nlinspace': 3, 'linear_type': 'before',
             'interpolate': 'linear', 'itol': 1e-2
         }
         args_ode = AttrDict(args_ode)
+        d_model = 32
 
-        self.encoder = EncoderLayer(16, 64, 4, 4, 4, args=args_ode, dropout=args.dropout).to(device)
-        self.lin_in = nn.Linear(obs_dim, 16).to(device)
-        self.lin_out = nn.Linear(16, obs_dim).to(device)
+        self.encoder = EncoderLayer(d_model, 64, 8, 4, 4, args=args_ode, dropout=args.dropout).to(device)
+        self.lin_in = nn.Linear(obs_dim, d_model).to(device)
+        self.lin_out = nn.Linear(d_model, obs_dim).to(device)
 
         self.position_vec = torch.tensor(
-            [math.pow(10000.0, 2.0 * (i // 2) / 16) for i in range(16)])
+            [math.pow(10000.0, 2.0 * (i // 2) / d_model) for i in range(d_model)])
         self.batch_size = batch_size
         self.L1_loss = []
         self.gradient_loss = []
@@ -163,10 +164,20 @@ class ContiFormer(nn.Module):
             input = self.lin_in(samples[..., :-1])
             input = (input + self.temporal_enc(t0)).float()
 
-            _input, _t0 = self.pad_input(input, t0[0])
-
-            X = torchcde.LinearInterpolation(_input, t=_t0)
-            input = X.evaluate(orig_ts).float()
+            _input, _t0 = input, t0
+            # _input, _t0 = self.pad_input(input, t0[0])
+            # for i in range(self.batch_size):
+            #     test = input[i,:,:]
+            #     print(test.shape[0]) 
+            #     test = _t0[i]
+            #     print(test.shape[0])
+            # assert _input.shape[1] == _t0.shape[-1], f"{_input.shape[1]} vs {_t0.shape[-1]}"
+            
+            input = torch.tensor([]).to(input.device)
+            for i in range(self.batch_size):
+                Xi = torchcde.LinearInterpolation(_input[i], t=_t0[i])  # _t0[i]: (L,)
+                Xi = Xi.evaluate(orig_ts).float()
+                input = torch.cat((input, Xi.unsqueeze(0)), dim=0)  
             orig_ts = torch.tensor(orig_ts).to(input.device)
 
             mask = torch.zeros(self.batch_size, ls, 1).to(input.device)
@@ -179,7 +190,8 @@ class ContiFormer(nn.Module):
             input = self.lin_in(samples[..., :-1])
             input = (input + self.temporal_enc(t0)).float()
 
-            _input, _t0 = self.pad_input(input, t0[0])
+            # _input, _t0 = self.pad_input(input, t0[0])
+            _input, _t0 = input, t0
 
             X = torchcde.LinearInterpolation(_input, t=_t0)
             input = X.evaluate(orig_ts).float()
@@ -229,7 +241,7 @@ class ContiFormer(nn.Module):
 def get_ds_timeSeries(function_args):
     train_count = function_args.train_count
     val_count = function_args.val_count
-    x_values = np.arange(0, function_args.number_x_values)
+    x_values = np.linspace(0,1,function_args.number_x_values, dtype=np.float32)
 
     train_ds = TimeSeriesDataset_Interpolation_roundedInput(train_count, x_values, function_args)
     val_ds = TimeSeriesDataset_Interpolation_roundedInput(val_count, x_values, function_args)
@@ -291,12 +303,14 @@ if __name__ == '__main__':
             row_idx, col_idx = torch.where(mask)
             n_true_per_row = mask.sum(dim=1)[0].item()
             indices_per_row = col_idx.view(10, n_true_per_row)
+            time_stamps = col_idx.view(10, n_true_per_row)*(1.0/(args.number_x_values))
+            time_stamps = time_stamps.unsqueeze(-1).float().to(device)  
             timeSeries_noisy = timeSeries_noisy_original.gather(1, indices_per_row)
             indices_per_row = indices_per_row.unsqueeze(-1)
             timeSeries_noisy = timeSeries_noisy.unsqueeze(-1)
-            timeSeries_noisy = torch.cat((timeSeries_noisy, indices_per_row), dim=-1).float().to(device)
+            timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float().to(device)
 
-            # for i in range(args.batch_size):
+            for i in range(args.batch_size):
             #     y_values_loop = timeSeries_noisy_original[i]
             #     x_values = np.arange(len(y_values_loop))
             #     mask_loop = mask[i]
@@ -305,6 +319,8 @@ if __name__ == '__main__':
             #     fig, ax = plt.subplots(1,1)
             #     ax.plot(x_values, y_values_loop)
             #     plt.show()
+                test_sample = timeSeries_noisy[i,:,:]
+                print(timeSeries_noisy[i,:,:-1].shape)
 
 
 
@@ -335,7 +351,7 @@ if __name__ == '__main__':
                 groundTruth = batch["groundTruth"]
                 timeSeries_noisy_original = batch["noisy_TimeSeries"]
                 mask = batch["mask"]
-                time_stamps_original = torch.linspace(0,1,1000).to(device)
+                time_stamps_original = torch.linspace(0,1,1000, dtype=torch.float32).to(device)
                 
                 div_term = batch["div_term"]
                 min_value = batch["min_value"]
