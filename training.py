@@ -57,7 +57,7 @@ parser.add_argument('--dropout', type=float, default=0.1)
 ##parameters for timeseries generation
 parser.add_argument('--y_lim_low', type=int, default=10)
 parser.add_argument('--y_lim_high', type=int, default=10000)
-parser.add_argument('--train_count', type=int, default=10)
+parser.add_argument('--train_count', type=int, default=1000)
 parser.add_argument('--val_count', type=int, default=1)
 parser.add_argument('--number_x_values', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=10) #ausprobieren
@@ -148,11 +148,11 @@ class ContiFormer(nn.Module):
         result[:, :, 1::2] = torch.cos(result[:, :, 1::2])
         return result
 
-    def pad_input(self, input, t0, tmax=6 * math.pi):
-        input_last = input[:, -1:, :]
-        input = torch.cat((input, input_last), dim=1)
-        t0 = torch.cat((t0, torch.tensor([tmax]).to(t0.device)), dim=0)
-        return input, t0
+    # def pad_input(self, input, t0, tmax=6 * math.pi):
+    #     input_last = input[:, -1:, :]
+    #     input = torch.cat((input, input_last), dim=1)
+    #     t0 = torch.cat((t0, torch.tensor([tmax]).to(t0.device)), dim=0)
+    #     return input, t0
 
     def forward(self, samples, orig_ts, **kwargs):
         if kwargs.get('is_train', False):
@@ -193,7 +193,7 @@ class ContiFormer(nn.Module):
             # _input, _t0 = self.pad_input(input, t0[0])
             _input, _t0 = input, t0
 
-            X = torchcde.LinearInterpolation(_input, t=_t0)
+            X = torchcde.LinearInterpolation(_input, t=_t0[0])
             input = X.evaluate(orig_ts).float()
             orig_ts = torch.tensor(orig_ts).to(input.device)
 
@@ -310,7 +310,7 @@ if __name__ == '__main__':
             timeSeries_noisy = timeSeries_noisy.unsqueeze(-1)
             timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float().to(device)
 
-            for i in range(args.batch_size):
+            # for i in range(args.batch_size):
             #     y_values_loop = timeSeries_noisy_original[i]
             #     x_values = np.arange(len(y_values_loop))
             #     mask_loop = mask[i]
@@ -319,8 +319,8 @@ if __name__ == '__main__':
             #     fig, ax = plt.subplots(1,1)
             #     ax.plot(x_values, y_values_loop)
             #     plt.show()
-                test_sample = timeSeries_noisy[i,:,:]
-                print(timeSeries_noisy[i,:,:-1].shape)
+                # test_sample = timeSeries_noisy[i,:,:]
+                # print(timeSeries_noisy[i,:,:-1].shape)
 
 
 
