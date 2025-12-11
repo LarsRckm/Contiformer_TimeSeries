@@ -12,7 +12,8 @@ class TimeSeriesDataset_Interpolation_roundedInput(Dataset):
         self.timeseries_count = timeseries_count
         self.x_values = x_values
         self.args = args
-        self.mask_size = np.random.uniform(0,400)
+        # self.mask_size = np.random.uniform(0,400)
+        self.mask_size = 0
 
     def __len__(self):
         return self.timeseries_count
@@ -20,13 +21,16 @@ class TimeSeriesDataset_Interpolation_roundedInput(Dataset):
     def __getitem__(self, index):
         if(index == 0):
             self.mask_size = int(np.random.uniform(0,500))
+            # self.mask_size = 0
 
         #random start value y_start within boundaries config["y_lim"][0]+1 and config["y_lim"][1]-1
         y_start = np.random.uniform(self.args.y_lim_low + 1,self.args.y_lim_high - 1)
         
         #calculate randomInt to select different time series generating functions
-        timeSeries = [0,1,2,3,4,5,6,7]
-        randomInt = choice(timeSeries)
+        # timeSeries = [0,1,2,3,4,5,6,7]
+        # randomInt = choice(timeSeries)
+
+        randomInt = 3
         #0: low order
         #1: low order
         #2: low order
@@ -64,7 +68,7 @@ class TimeSeriesDataset_Interpolation_roundedInput(Dataset):
             "noisy_TimeSeries" : timeSeries_noisy,
             "groundTruth": timeSeries_groundTruth,
             "noise_std": noise_std,
-            "mask": mask,
+            "mask": mask.long(),
         }
 
 

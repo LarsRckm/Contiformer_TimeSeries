@@ -13,7 +13,7 @@ import torch.optim as optim
 from torch import nn
 import torch
 import torchcde
-from contiformer import AttrDict, EncoderLayer
+from contiformer import AttrDict, EncoderLayer, ContiFormer
 from dataset_timeSeries import TimeSeriesDataset_Interpolation_roundedInput
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -69,7 +69,7 @@ parser.add_argument('--spline_value_high', type=int, default=1100000)
 parser.add_argument('--vocab_size', type=int, default=100000)
 parser.add_argument('--noise_std_distribution', type=str, default="norm")
 parser.add_argument('--noise_std_mean', type=int, default=0)
-parser.add_argument('--noise_std_std', type=int, default=0.15)
+parser.add_argument('--noise_std_std', type=int, default=0.10)
 parser.add_argument('--interpolation_min_width', type=int, default=10)
 parser.add_argument('--interpolation_max_width', type=int, default=100)
 parser.add_argument('--interpolation_max_count', type=int, default=10)
@@ -114,102 +114,109 @@ class RunningAverageMeter(object):
 
 
 
-class ContiFormer(nn.Module):
-    def __init__(self, obs_dim, device, batch_size=10):
-        super(ContiFormer, self).__init__()
-        args_ode = {
-            'use_ode': True, 'actfn': 'tanh', 'layer_type': 'concat', 'zero_init': True,
-            'atol': args.atol, 'rtol': args.rtol, 'method': args.method, 'regularize': False,
-            'approximate_method': 'bilinear', 'nlinspace': 3, 'linear_type': 'before',
-            'interpolate': 'linear', 'itol': 1e-2
-        }
-        args_ode = AttrDict(args_ode)
-        d_model = 32
+# class ContiFormer(nn.Module):
+#     def __init__(self, obs_dim, device, batch_size=10):
+#         super(ContiFormer, self).__init__()
+#         args_ode = {
+#             'use_ode': True, 'actfn': 'tanh', 'layer_type': 'concat', 'zero_init': True,
+#             'atol': args.atol, 'rtol': args.rtol, 'method': args.method, 'regularize': False,
+#             'approximate_method': 'bilinear', 'nlinspace': 3, 'linear_type': 'before',
+#             'interpolate': 'linear', 'itol': 1e-2
+#         }
+#         args_ode = AttrDict(args_ode)
+#         d_model = 16
 
-        self.encoder = EncoderLayer(d_model, 64, 8, 4, 4, args=args_ode, dropout=args.dropout).to(device)
-        self.lin_in = nn.Linear(obs_dim, d_model).to(device)
-        self.lin_out = nn.Linear(d_model, obs_dim).to(device)
+#         self.encoder = EncoderLayer(d_model, 64, 4, 4, 4, args=args_ode, dropout=args.dropout).to(device)
+#         self.lin_in = nn.Linear(obs_dim, d_model).to(device)
+#         self.lin_out = nn.Linear(d_model, obs_dim).to(device)
 
-        self.position_vec = torch.tensor(
-            [math.pow(10000.0, 2.0 * (i // 2) / d_model) for i in range(d_model)])
-        self.batch_size = batch_size
-        self.L1_loss = []
-        self.gradient_loss = []
-        self.total_loss = []
+#         self.position_vec = torch.tensor(
+#             [math.pow(10000.0, 2.0 * (i // 2) / d_model) for i in range(d_model)])
+#         self.batch_size = batch_size
+#         self.L1_loss = []
+#         self.gradient_loss = []
+#         self.total_loss = []
 
-    def temporal_enc(self, time):
-        """
-        Input: batch*seq_len.
-        Output: batch*seq_len*d_model.
-        """
+#     def temporal_enc(self, time):
+#         """
+#         Input: batch*seq_len.
+#         Output: batch*seq_len*d_model.
+#         """
 
-        result = time.unsqueeze(-1) / self.position_vec.to(time.device)
-        result[:, :, 0::2] = torch.sin(result[:, :, 0::2])
-        result[:, :, 1::2] = torch.cos(result[:, :, 1::2])
-        return result
+#         result = time.unsqueeze(-1) / self.position_vec.to(time.device)
+#         result[:, :, 0::2] = torch.sin(result[:, :, 0::2])
+#         result[:, :, 1::2] = torch.cos(result[:, :, 1::2])
+#         return result
 
-    # def pad_input(self, input, t0, tmax=6 * math.pi):
-    #     input_last = input[:, -1:, :]
-    #     input = torch.cat((input, input_last), dim=1)
-    #     t0 = torch.cat((t0, torch.tensor([tmax]).to(t0.device)), dim=0)
-    #     return input, t0
+#     # def pad_input(self, input, t0, tmax=6 * math.pi):
+#     #     input_last = input[:, -1:, :]
+#     #     input = torch.cat((input, input_last), dim=1)
+#     #     t0 = torch.cat((t0, torch.tensor([tmax]).to(t0.device)), dim=0)
+#     #     return input, t0
 
-    def forward(self, samples, orig_ts, **kwargs):
-        if kwargs.get('is_train', False):
-            bs, ls = samples.shape[0], len(orig_ts)
-            # sample_idx = npr.choice(bs, self.batch_size, replace=False)
-            # samples = samples[sample_idx, ...]
+#     def forward(self, samples, orig_ts, **kwargs):
+#         if kwargs.get('is_train', False):
+#             bs, ls = samples.shape[0], len(orig_ts)
+#             # sample_idx = npr.choice(bs, self.batch_size, replace=False)
+#             # samples = samples[sample_idx, ...]
 
-            t0 = samples[..., -1]
-            input = self.lin_in(samples[..., :-1])
-            input = (input + self.temporal_enc(t0)).float()
+#             t0 = samples[..., -1]
+#             input = self.lin_in(samples[..., :-1])
+#             input = (input + self.temporal_enc(t0)).float()
 
-            _input, _t0 = input, t0
-            # _input, _t0 = self.pad_input(input, t0[0])
-            # for i in range(self.batch_size):
-            #     test = input[i,:,:]
-            #     print(test.shape[0]) 
-            #     test = _t0[i]
-            #     print(test.shape[0])
-            # assert _input.shape[1] == _t0.shape[-1], f"{_input.shape[1]} vs {_t0.shape[-1]}"
+#             _input, _t0 = input, t0
+#             # _input, _t0 = self.pad_input(input, t0[0])
+#             # for i in range(self.batch_size):
+#             #     test = input[i,:,:]
+#             #     print(test.shape[0]) 
+#             #     test = _t0[i]
+#             #     print(test.shape[0])
+#             # assert _input.shape[1] == _t0.shape[-1], f"{_input.shape[1]} vs {_t0.shape[-1]}"
             
-            input = torch.tensor([]).to(input.device)
-            for i in range(self.batch_size):
-                Xi = torchcde.LinearInterpolation(_input[i], t=_t0[i])  # _t0[i]: (L,)
-                Xi = Xi.evaluate(orig_ts).float()
-                input = torch.cat((input, Xi.unsqueeze(0)), dim=0)  
-            orig_ts = torch.tensor(orig_ts).to(input.device)
+#             input = torch.tensor([]).to(input.device)
+#             for i in range(self.batch_size):
+#                 Xi = torchcde.LinearInterpolation(_input[i], t=_t0[i])  # _t0[i]: (L,)
+#                 Xi = Xi.evaluate(orig_ts).float()
+#                 input = torch.cat((input, Xi.unsqueeze(0)), dim=0)  
+#             orig_ts = torch.tensor(orig_ts).to(input.device)
 
-            mask = torch.zeros(self.batch_size, ls, 1).to(input.device)
-            out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(self.batch_size, 1).float(),
-                                  mask=mask.bool())
-            return self.lin_out(out)
-        else:
-            bs, ls = samples.shape[0], len(orig_ts)
-            t0 = samples[..., -1]
-            input = self.lin_in(samples[..., :-1])
-            input = (input + self.temporal_enc(t0)).float()
+#             mask = torch.zeros(self.batch_size, ls, 1).to(input.device)
+#             out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(self.batch_size, 1).float(),
+#                                   mask=mask.bool())
+#             return self.lin_out(out)
+#         else:
+#             bs, ls = samples.shape[0], len(orig_ts)
+#             t0 = samples[..., -1]
+#             input = self.lin_in(samples[..., :-1])
+#             input = (input + self.temporal_enc(t0)).float()
 
-            # _input, _t0 = self.pad_input(input, t0[0])
-            _input, _t0 = input, t0
+#             # _input, _t0 = self.pad_input(input, t0[0])
+#             _input, _t0 = input, t0
 
-            X = torchcde.LinearInterpolation(_input, t=_t0[0])
-            input = X.evaluate(orig_ts).float()
-            orig_ts = torch.tensor(orig_ts).to(input.device)
+#             X = torchcde.LinearInterpolation(_input, t=_t0[0])
+#             input = X.evaluate(orig_ts).float()
+#             orig_ts = torch.tensor(orig_ts).to(input.device)
 
-            mask = torch.zeros(bs, ls, 1).to(input.device)
-            out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(bs, 1).float(), mask=mask.bool())
-            return self.lin_out(out), None
+#             mask = torch.zeros(bs, ls, 1).to(input.device)
+#             out, _ = self.encoder(input, orig_ts.unsqueeze(0).repeat(bs, 1).float(), mask=mask.bool())
+#             return self.lin_out(out), None
 
-    # def calculate_loss(self, pred_x, target_x):
-    #     # pred_x, idx = out
-    #     # target_x, _, _ = target
-    #     # if idx is not None:
-    #     #     return ((pred_x - target_x[idx, ...]) ** 2).sum()
-    #     # else:
-    #     return ((pred_x - target_x) ** 2).sum()
+#     # def calculate_loss(self, pred_x, target_x):
+#     #     # pred_x, idx = out
+#     #     # target_x, _, _ = target
+#     #     # if idx is not None:
+#     #     #     return ((pred_x - target_x[idx, ...]) ** 2).sum()
+#     #     # else:
+#     #     return ((pred_x - target_x) ** 2).sum()
 
-    def calculate_loss(self, pred_x, target_x, time_interval=None, weight_l1=1.0, weight_grad=0.5):
+
+
+L1_loss = []
+gradient_loss = []
+total_loss = []
+
+
+def calculate_loss(pred_x, target_x, time_interval=None, weight_l1=1.0, weight_grad=0.5):
     # MSE für die Werte selbst
         L1_loss = torch.nn.functional.smooth_l1_loss(pred_x, target_x, reduction="mean")
         
@@ -218,21 +225,24 @@ class ContiFormer(nn.Module):
             # time_interval sollte die zeitlichen Schritte enthalten
             dt = time_interval[1:] - time_interval[:-1]  # Zeitunterschiede
             dt = dt.unsqueeze(-1)  # Shape anpassen für Broadcasting
+
+            # Normalisieren: dt durch durchschnittlichen Zeitschritt dividieren
+            dt_normalized = dt / dt.mean()
             
             # Gradienten der Vorhersage und des Targets
-            pred_grad = (pred_x[:, 1:] - pred_x[:, :-1]) / dt
-            target_grad = (target_x[:, 1:] - target_x[:, :-1]) / dt
+            pred_grad = (pred_x[:, 1:] - pred_x[:, :-1]) / dt_normalized
+            target_grad = (target_x[:, 1:] - target_x[:, :-1]) / dt_normalized
             
             # MSE der Gradienten
             gradient_loss = torch.nn.functional.mse_loss(pred_grad, target_grad, reduction="mean")
             
             # Kombinierte Loss
-            self.L1_loss.append(L1_loss.item())
-            self.gradient_loss.append(gradient_loss.item())
+            L1_loss.append(L1_loss.item())
+            gradient_loss.append(gradient_loss.item())
 
             total_loss = weight_l1 * L1_loss + weight_grad * gradient_loss
 
-            self.total_loss.append(total_loss.item())   
+            total_loss.append(total_loss.item())   
             return total_loss
         else:
             return L1_loss
@@ -268,7 +278,19 @@ if __name__ == '__main__':
     #dataloader 
     train_dataloader, val_dataloader = get_ds_timeSeries(args)
     
-    model = ContiFormer(obs_dim, device, args.batch_size)
+    model = ContiFormer(
+        input_size=1,
+        d_model=256,
+        d_inner=1024,
+        n_layers=4,
+        n_head=4,
+        d_k=64,
+        d_v=64,
+        atol_ode=args.atol,
+        rtol_ode=args.rtol,
+        method_ode=args.method,
+        nlinspace=3
+    )
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     loss_meter = RunningAverageMeter()
@@ -294,21 +316,28 @@ if __name__ == '__main__':
             groundTruth = batch["groundTruth"].unsqueeze(-1).to(device)
             timeSeries_noisy_original = batch["noisy_TimeSeries"]
             mask = batch["mask"]
-            time_stamps_original = torch.linspace(0,1, args.number_x_values, dtype=torch.float32).to(device)
+            # time_stamps_original = torch.linspace(0,1, args.number_x_values, dtype=torch.float32).to(device)
             
             div_term = batch["div_term"].unsqueeze(-1).unsqueeze(-1).to(device)
             min_value = batch["min_value"].unsqueeze(-1).unsqueeze(-1).to(device)
             noise_std = batch["noise_std"]
 
-            row_idx, col_idx = torch.where(mask)
-            n_true_per_row = mask.sum(dim=1)[0].item()
-            indices_per_row = col_idx.view(10, n_true_per_row)
-            time_stamps = col_idx.view(10, n_true_per_row)*(1.0/(args.number_x_values))
-            time_stamps = time_stamps.unsqueeze(-1).float().to(device)  
-            timeSeries_noisy = timeSeries_noisy_original.gather(1, indices_per_row)
-            indices_per_row = indices_per_row.unsqueeze(-1)
-            timeSeries_noisy = timeSeries_noisy.unsqueeze(-1)
-            timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float().to(device)
+
+            # # Ansatz (Datenpunkt,Zeitpunkt)
+            # row_idx, col_idx = torch.where(mask)
+            # n_true_per_row = mask.sum(dim=1)[0].item()
+            # indices_per_row = col_idx.view(10, n_true_per_row)
+            # time_stamps = col_idx.view(10, n_true_per_row)*(1.0/(args.number_x_values))
+            # time_stamps = time_stamps.unsqueeze(-1).float().to(device)  
+            # timeSeries_noisy = timeSeries_noisy_original.gather(1, indices_per_row)
+            # indices_per_row = indices_per_row.unsqueeze(-1)
+            # timeSeries_noisy = timeSeries_noisy.unsqueeze(-1)
+            # timeSeries_noisy = torch.cat((timeSeries_noisy, time_stamps), dim=-1).float().to(device)
+
+
+            #Ansatz:
+            # normale Datenpunkte über linear Layer
+            # Interpolationsdatenpunkte über nn.Embedding
 
             # for i in range(args.batch_size):
             #     y_values_loop = timeSeries_noisy_original[i]
@@ -322,10 +351,10 @@ if __name__ == '__main__':
                 # test_sample = timeSeries_noisy[i,:,:]
                 # print(timeSeries_noisy[i,:,:-1].shape)
 
+            print((mask[0,:] == 0).sum())
 
 
-
-            out = model(timeSeries_noisy, time_stamps_original, is_train=True)
+            out = model(timeSeries_noisy_original.unsqueeze(-1), mask)
             # out, idx = out
             # out = (out*div_term) + min_value
             # groundTruth = (groundTruth*div_term) + min_value
@@ -351,7 +380,7 @@ if __name__ == '__main__':
                 groundTruth = batch["groundTruth"]
                 timeSeries_noisy_original = batch["noisy_TimeSeries"]
                 mask = batch["mask"]
-                time_stamps_original = torch.linspace(0,1,1000, dtype=torch.float32).to(device)
+                time_stamps_original = torch.linspace(0,1,1000, dtype=torch.float32)
                 
                 div_term = batch["div_term"]
                 min_value = batch["min_value"]

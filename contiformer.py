@@ -244,7 +244,7 @@ class ContiFormer(nn.Module):
 
     def __init__(
             self,
-            input_size: Optional[int] = None,
+            input_size: Optional[int] = 1,
             d_model: Optional[int] = 256,
             d_inner: Optional[int] = 1024,
             n_layers: Optional[int] = 4,
@@ -303,6 +303,7 @@ class ContiFormer(nn.Module):
 
         if input_size is not None:   # None for hidden state inputs
             self.linear = nn.Linear(input_size, d_model)
+            self.typeEmbedding = nn.Embedding(2,d_model)
         else:
             self.linear = None
 
@@ -310,15 +311,30 @@ class ContiFormer(nn.Module):
         self.__output_size = d_model
         self.__hidden_size = d_model
 
-    def forward(self, x, t=None, mask=None):
+    def forward(self, x, is_observed, t=None, mask=None):
         if t is None:   # default to regular time series
             t = torch.linspace(0, 1, x.shape[1]).to(x.device)
             t = t.unsqueeze(0).repeat(x.shape[0], 1)
 
         if self.linear is not None:
-            x = self.linear(x)
+            #interpolationslücken zu 0 setzen
+            x[is_observed == 0] = 0
 
-        enc_output = self.encoder(x, t, mask)
+            #value embedding
+            value_emb = self.linear(x)
+
+            #type embedding
+            type_emb = self.typeEmbedding(is_observed)
+        
+        print(x[0,:,:])
+        print(value_emb[0,:,:])
+        print(type_emb[0,:,:])
+        
+        total_emb = value_emb + type_emb
+
+        print(total_emb[0,:,:])
+        
+        enc_output = self.encoder(total_emb, t, mask)
         return enc_output, enc_output[:, -1, :]
 
     @property

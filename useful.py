@@ -173,49 +173,50 @@ def remove_parts_of_graph_encoder_contiformer(x_array, number_masking_tokens, of
 
 
     mask = np.zeros_like(x_array)
-    length_x_array = len(x_array)
-    start_mask = [0+offset]
-    end_mask = [length_x_array-offset]
-    # wert = np.random.normal(loc=number_masking_tokens/10, scale=number_masking_tokens/20)
-    # wert = np.clip(wert, 0, number_masking_tokens)
-    mask_width = np.random.randint(0,150+1)
-    position = np.random.randint(start_mask[0], end_mask[0] - mask_width)
-    start_mask.append(position)
-    start_mask.sort()
-    end_mask.append(position+mask_width)
-    end_mask.sort()
-    mask[position:position+mask_width] = 1
-    number_masking_tokens = number_masking_tokens - mask_width
-
-    while number_masking_tokens != 0:
-        possible_locations = []
-        while len(possible_locations) == 0:
-            mask_width = np.random.randint(0, number_masking_tokens+1)
-            if mask_width != 0 and mask_width < 150:
-                free_mask_width = start_mask[1] - start_mask[0]
-                if (free_mask_width-2*offset) > mask_width:
-                    possible_locations.append([start_mask[0]+offset, start_mask[1]-offset])
-                
-                free_mask_width = end_mask[-1] - end_mask[-2]
-                if (free_mask_width-2*offset) > mask_width:
-                    possible_locations.append([end_mask[-2]+offset, end_mask[-1]-offset])
-
-                assert len(start_mask) == len(end_mask)
-                for i in range(len(start_mask)-2):
-                    free_mask_width = start_mask[i+2] - end_mask[i]
-                    if (free_mask_width-2*offset) > mask_width:
-                        possible_locations.append([end_mask[i]+offset, start_mask[i+2]-offset])
-        
-            
-        new_start, new_end = possible_locations[np.random.choice(np.arange(len(possible_locations)))]
-        difference = new_end - mask_width
-        new_start = np.random.randint(new_start,difference)
-        mask[new_start:new_start+mask_width] = 1
-        start_mask.append(new_start)
+    if (number_masking_tokens > 0):
+        length_x_array = len(x_array)
+        start_mask = [0+offset]
+        end_mask = [length_x_array-offset]
+        # wert = np.random.normal(loc=number_masking_tokens/10, scale=number_masking_tokens/20)
+        # wert = np.clip(wert, 0, number_masking_tokens)
+        mask_width = np.random.randint(0,150+1)
+        position = np.random.randint(start_mask[0], end_mask[0] - mask_width)
+        start_mask.append(position)
         start_mask.sort()
-        end_mask.append(new_start+mask_width)
+        end_mask.append(position+mask_width)
         end_mask.sort()
+        mask[position:position+mask_width] = 1
         number_masking_tokens = number_masking_tokens - mask_width
+
+        while number_masking_tokens != 0:
+            possible_locations = []
+            while len(possible_locations) == 0:
+                mask_width = np.random.randint(0, number_masking_tokens+1)
+                if mask_width != 0 and mask_width < 150:
+                    free_mask_width = start_mask[1] - start_mask[0]
+                    if (free_mask_width-2*offset) > mask_width:
+                        possible_locations.append([start_mask[0]+offset, start_mask[1]-offset])
+                    
+                    free_mask_width = end_mask[-1] - end_mask[-2]
+                    if (free_mask_width-2*offset) > mask_width:
+                        possible_locations.append([end_mask[-2]+offset, end_mask[-1]-offset])
+
+                    assert len(start_mask) == len(end_mask)
+                    for i in range(len(start_mask)-2):
+                        free_mask_width = start_mask[i+2] - end_mask[i]
+                        if (free_mask_width-2*offset) > mask_width:
+                            possible_locations.append([end_mask[i]+offset, start_mask[i+2]-offset])
+            
+                
+            new_start, new_end = possible_locations[np.random.choice(np.arange(len(possible_locations)))]
+            difference = new_end - mask_width
+            new_start = np.random.randint(new_start,difference)
+            mask[new_start:new_start+mask_width] = 1
+            start_mask.append(new_start)
+            start_mask.sort()
+            end_mask.append(new_start+mask_width)
+            end_mask.sort()
+            number_masking_tokens = number_masking_tokens - mask_width
     
 
     return mask
