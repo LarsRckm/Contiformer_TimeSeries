@@ -38,7 +38,7 @@ def get_logger(name):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--niters', type=int, default=4000)
-parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--lr', type=float, default=0.0001)
 parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--train_dir', type=str, default='./train_dir/')
 parser.add_argument('--val_dir_pictures', type=str, default='./val_pictures/')
@@ -358,7 +358,7 @@ if __name__ == '__main__':
             # out, idx = out
             # out = (out*div_term) + min_value
             # groundTruth = (groundTruth*div_term) + min_value
-            loss = model.calculate_loss(out, groundTruth, time_interval=time_stamps_original, weight_l1=1.0, weight_grad=0.5)
+            loss = calculate_loss(out, groundTruth, time_interval=time_stamps_original, weight_l1=1.0, weight_grad=0.5)
             loss.backward()
             optimizer.step()
             loss_meter.update(loss.item())
